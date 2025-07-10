@@ -1,0 +1,497 @@
+---
+title: "PSTAT175 Project"
+author: "Joseph Chang, Jonathan Rosal, Rohan Majumdar"
+date: "December 11th, 2022"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+geometry: left=3cm, right=3cm, top=2cm, bottom=2cm
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 12, fig.height = 8)
+```
+
+## LIBRARIES
+
+```{r, warning=FALSE, message=FALSE}
+library(knitr)
+library(dplyr)
+library(tidyverse)
+library(survival)
+library(survminer)
+```
+
+# [**Introduction**]{.ul}
+
+Cardiovascular diseases, also known as CVDs, are the number 1 cause of
+deaths around the world. Every year, CVDs account for an estimated 17.9
+million deaths, which is 31% of all deaths worldwide. Most
+cardiovascular diseases can be caused by daily behaviors such as tobacco
+use, unhealthy diet and obesity, physical inactivity, and harmful use of
+alcohol. The most common event caused by CVDs is heart failure. People
+with CVDs, hypertension, diabetes, hyperlipidaemia or another
+established disease, are at high risk. They need early detection and
+management. This project uses a survival analysis model and contains 12
+features that can predict mortality by heart failure (Larxel 2020).
+
+The features include:
+
+-   Age
+
+-   Anaemia - decrease of red blood cells, or hemoglobin (Yes = 1 / No
+    =0)
+
+-   Creatinine Phosphokinase - Level of the CPK enzyme in the blood
+    (mcg/L)
+
+-   Diabetes - If the patient has Diabetes (Yes = 1 / No = 0)
+
+-   Ejection Fraction - Percentage of blood leaving the heart at each
+    contraction (percentage)
+
+-   High Blood Pressure - If patient has hypertension (Yes = 1 / No = 0)
+
+-   Platelets - Platelets in the blood (kilo-platelets/mL)
+
+-   Serum Creatinine - Level of serum creatinine in the blood (mg/dl)
+
+-   Serum Sodium - Level of serum sodium in the blood (mEq/L)
+
+-   Sex - Female or Male (Male = 1 / Female = 0)
+
+-   Smoking - If the patient smokes or not (Yes = 1 / No = 0)
+
+-   Time - The follow-up period
+
+-   Death Event - If the patient deceased during the follow-up period
+    (Yes = 1 / No = 0)
+
+With the exception of the feature Age (we think age is an important
+indicator of heart failure), we want to reduce the number of features
+and observe only the features that give blood measurements and are
+associated with blood sampling. In particular, the features we want to
+examine are age, anaemia, creatinine_phosphokinase, diabetes, ejection
+fraction, high blood pressure, platelets, serum creatinine, and
+serum_sodium, all of which will be measured against time. Thus, the
+objective of this project is to determine which features related to
+blood sampling are most significant with time. Measuring the features
+that are related to blood measurements play an important role in
+researching into heart failures, which could crucially help doctors,
+researchers, and those in the medical field focus on the cause of heart
+failures, help advance medical practices, and potentially save lives in
+the future.
+
+Some limitations of our project include the inability to change the
+known factors of age or sex. The Age factor is only between 40 to 95,
+and thus does not consider younger or older people than that age range.
+This could affect predictions and alter our data. The Sex factor shows
+that there is nearly double the amount of males than females. Since
+there is more data on males (194) than females (105), this could result
+in a prediction that applies more closely to males than females. Other
+than these factors, all the other factors can be moderated to some
+extent.
+
+## Data Importation
+
+```{r}
+heart <- read.csv("heart_failure_clinical_records_dataset.csv")
+summary(heart)
+
+```
+
+## Kaplan Meier Plot
+
+```{r, fig.width=5, fig.height=3}
+# fit kaplan meier curve
+heart_surv <- Surv(heart$time, heart$DEATH_EVENT)
+heart_fit <- surv_fit(heart_surv ~ 1, data = heart)
+
+# plot kaplan meier curve
+plot(heart_fit, xlab = "Time", ylab = "Survival Probability", 
+     main = "Kaplan Meier Curve for Heart Patients")
+```
+
+## Kaplan Meier Plot for each Gender
+
+```{r, fig.width=5, fig.height=4}
+# survival vector for female 
+heart_surv_female <- Surv(heart$time[heart$sex == 0], heart$DEATH_EVENT[heart$sex == 0])
+
+# survival vector for male 
+heart_surv_male <- Surv(heart$time[heart$sex == 1], heart$DEATH_EVENT[heart$sex == 1])
+
+# fit kaplan meier curve
+heart_fit_female <- survfit(heart_surv_female ~ 1)
+heart_fit_male <- survfit(heart_surv_male ~ 1)
+
+# plot the male and female survival probability
+plot(heart_fit_female, xlab= "Time", ylab = "Survival Probability", 
+     main = "Kaplan Meier Curve for Female and Male Heart Patients", 
+     col = c("red","grey","grey"), lwd = 2)
+lines(heart_fit_male, xlab= "Time", ylab = "Survival Probability", 
+      col = c("blue","light blue","light blue"), lwd = 2)
+legend("bottomleft", inset=.02, title="Legend",
+   c("Male","Female"), fill=c("Blue", "Red"), horiz=TRUE, cex=0.8)
+```
+
+From the plot, we see that survival function for women and men are
+around the same.
+
+## Log-Log Plot for each Gender on Time
+
+```{r, fig.width=6, fig.height=4}
+plot(survfit(Surv(time, DEATH_EVENT) ~ sex, data = heart), fun = "cloglog", 
+     lwd = 2, col =c(2, 4), xlab="Time", ylab = "log(log(S))", 
+     main = "Log-log plot of Gender")
+```
+
+We see that the log-log survival plot is parallel at first, but starts
+to intersect as at around time 45. There is evidence that the Cox
+Proportional Hazards assumption is not reasonable for this model.
+
+# [**Model Fitting**]{.ul}
+
+## Stepwise Function
+
+```{r, warning=FALSE, message=FALSE}
+library(MASS)
+library(tidyr)
+heart1 <- heart[,-c(12, 13)]
+fit1 <- coxph(heart_surv ~ ., data = heart1)
+fit2 <- coxph(heart_surv ~ 1, heart1) ## base model
+stepAIC(fit2, direction="forward", scope=list(upper=fit1,lower=fit2))
+```
+
+```{r, warning=FALSE}
+best_model <- coxph(heart_surv ~ age + ejection_fraction + serum_creatinine +
+                      high_blood_pressure + anaemia + creatinine_phosphokinase + 
+                      serum_sodium, heart)
+summary(best_model)
+```
+
+We will use the following covariates: age, ejection_fraction,
+serum_creatinine, high_blood_pressure, anaemia,
+creatinine_phosphokinase, and serum_sodium.
+
+# [**Check Proportional Hazards Assumptions**]{.ul}
+
+```{r}
+res_best_model <- best_model
+test.ph <- cox.zph(res_best_model)
+test.ph
+```
+
+The covariate ejection_fraction has a p-value less than 0.05, which is
+statistically significant. Therefore, it does not meet the proportional
+hazards assumption. We will try again and use the same covariates from
+our best model, but stratify for the categorical variables of anaemia
+and high_blood_pressure because the data for each covariate was binary
+(0 or 1 values).
+
+```{r, fig.width= 10, fig.height=10, warning=FALSE}
+best_model2 <- coxph(heart_surv ~ age + ejection_fraction + 
+                       serum_creatinine + strata(high_blood_pressure) + strata(anaemia) + 
+                       creatinine_phosphokinase + serum_sodium, heart)
+res_best_model2 <- best_model2
+test.ph2 <- cox.zph(res_best_model2)
+test.ph2
+```
+
+From the output above, the covariates are all statistically
+insignificant, with the exception of ejection_fraction again. The global
+test is also not statistically significant. Other than
+ejection_fraction, we can see the proportional hazards assumption is
+relevant.
+
+## Graphical Test of Proportional Hazards
+
+```{r, fig.width= 10, fig.height=10, warning=FALSE}
+ggcoxzph(test.ph2)
+```
+
+From the Schoenfeld Residual test, we see the residuals (red dots)
+deviate from a horizontal line centered at Y = 0. We also see that the
+residuals are centered at 0 and for the most part, constant with time.
+The residuals are random, and there is no pattern with time.
+
+## Log-Log Plot for Ejection Fraction
+
+Since ejection_fraction is significant, we will create a log-log plot to
+examine the issue.
+
+```{r, fig.width=6, fig.height=4}
+plot(survfit(Surv(time, DEATH_EVENT) ~ factor(ejection_fraction), data = heart), fun = "cloglog", 
+     lwd = 2, col =c(2, 4), xlab="Time", ylab = "log(log(S))", 
+     main = "Log-log plot of ejection_fraction")
+
+```
+
+We can see that the proportional hazards assumptions for
+ejection_fraction is not met. However, based from the Schoenfeld
+Residual test for ejection_fraction, we see its residuals are centered
+at 0 and for the most part, constant with time. Since it is better not
+to remove this covariate from the model, we will just keep
+ejection_fraction in the model, but not include it in the conclusion.
+
+## Summary of Model
+
+```{r}
+summary(res_best_model2) 
+```
+
+# [**Conclusion**]{.ul}
+
+We attempted to figure out which covariates associated with blood
+sampling were most significant with time. The first thing we did was to
+check the effect gender had on CVDs. We determined that men and women
+had similar survival functions, but did not meet the proportional
+hazards assumption due to the log-log plot. We then used stepwise AIC in
+order to determine which covariates were the best to be used in our
+model, and found those covariates to be age, ejection_fraction,
+serum_creatinine, high_blood_pressure, anaemia,
+creatinine_phosphokinase, and serum_sodium. Next, using the cox.zph()
+function, we observed which covariates in our model met the proportional
+hazards assumption, and we found that ejection_fraction (with a p-value
+of 0.029), did not meet or satisfy the proportional hazards assumption.
+We then created another model that stratified for categorical variables,
+such as high_blood_pressure and anaemia. We fit an effect from
+ejection_fraction but found it did not have a corresponding parameter
+estimate. After observing the residuals for each covariate, we then
+decided to keep the covariate ejection_fraction in our model. To sum up,
+of the list of covariates associated with blood measurements, we found
+serum_creatinine, high_blood_pressure, anaemia,
+creatinine_phosphokinase, and serum_sodium to be most important and most
+significant with time.
+
+## Interpretation of each covariate in 95% confidence intervals
+
+Every time the serum_creatinine increases by a unit of 1, the hazard
+ratio increases by 38.69 percent, meaning the survival ratio went down
+38.69 percent. The 95 percent confidence interval for the hazard ratio
+for the covariate serum_creatinine is (0.9336, 0.9725).
+
+Every time the creatinine_phosphokinase increases by a unit of 1, the
+hazard ratio increases by 0.02 percent, meaning the survival ratio went
+down 0.02 percent. The 95 percent confidence interval for the hazard
+ratio for the covariate creatinine_phosphokinase is (1.0000, 1.0004).
+
+Every time the serum_sodium increases by a unit of 1, the hazard ratio
+decreases by 0.046 percent, meaning the survival ratio increases by
+0.046 percent. The 95 percent confidence interval for the hazard ratio
+for the covariate serum_sodium is (0.91, 0.99).
+
+Note: confidence intervals for high_blood_pressure and anaemia were
+omitted because they were stratified and considered categorical
+variables.
+
+# [Advanced Methods]{.ul}
+
+## Median: Day 115
+
+We will use the time-splitting method. Here, we will find the times in
+quantiles.
+
+```{r}
+heart.new <- heart
+heart.new$time2 <- heart$time + (heart$time == 0)/2
+quantile(heart.new$time2)
+```
+
+Then, we will apply the cut and create a new dataframe. Day 115 is the
+median for time so we will use that for the cut.
+
+```{r}
+split.heart <- survSplit(Surv(time2, DEATH_EVENT) ~ age + ejection_fraction 
+  + serum_creatinine + strata(high_blood_pressure) + strata(anaemia) + 
+  creatinine_phosphokinase + serum_sodium, data = heart.new, cut = 115, 
+  start = "start", episode = "Epi", end = "stop", id = "subject")
+
+```
+
+### Test Significance for serum_creatinine
+
+We will create a model to find if serum_creatinine is significantly
+different before and after the 115th follow-up day.
+
+```{r}
+cox.split.serum_creatinine <- coxph(Surv(start, stop, DEATH_EVENT) ~ 
+                                      serum_creatinine:strata(Epi), 
+                                    data = split.heart)
+
+summary(cox.split.serum_creatinine)
+```
+
+Looking at the summary we can see that serum_creatinine is significant
+both before and after the 115th day of the follow-up period. The p-value
+before the 115th day is 6.13e-06, and p-value after the 115th day is
+0.00552. Both p-values are less than the significance level of 0.05.
+
+### Test Significance for creatinine_phosphokinase
+
+We will create another model to find out if creatinine phosphokinase is
+significant before and after the 115th follow-up day.
+
+```{r}
+cox.split.creatinine_phosphokinase <- coxph(Surv(start, stop, DEATH_EVENT) ~ 
+                                          creatinine_phosphokinase:strata(Epi), 
+                                            data = split.heart)
+
+summary(cox.split.creatinine_phosphokinase)
+```
+
+Looking at the summary we can see creatinine phosphokinase is not
+significant for both time intervals (p-value before: 0.470 & p-value
+after: 0.213).
+
+### Test Significance for for serum_sodium
+
+We will create another model to find if serum_sodium is significant
+before and after the 115th follow-up day.
+
+```{r}
+cox.split.serum_sodium <- coxph(Surv(start, stop, DEATH_EVENT) ~ 
+                                  serum_sodium:strata(Epi), 
+                                data = split.heart)
+
+summary(cox.split.serum_sodium)
+```
+
+Looking at the summary we can see that serum_sodium is significant
+before the 115th day (p-value = 0.00078) but insignficant after the
+115th day (p-value = 0.27757).
+
+### Test Significance for all variables at Day 115
+
+We will create a final model that combines all variables together to
+find out which is significant before and after the 115th follow-up day.
+
+```{r}
+cox.split.all <- coxph(Surv(start, stop, DEATH_EVENT) ~ 
+                      serum_creatinine:strata(Epi) + 
+                      creatinine_phosphokinase:strata(Epi) + 
+                      serum_sodium:strata(Epi), data = split.heart)
+
+summary(cox.split.all)
+```
+
+From the output, we see the variables that are significant before day
+115 are serum_creatinine and serum_sodium. Variables that are
+significant after the 115th day is only serum_creatinine.
+
+## Cut Off at Different Time Intervals
+
+In order to do more exploration of the data, we are going to see if the
+variables are significant at different cuts. Referring to the quantile
+code above the 1st quarter ends at 73 and the 3rd quarter ends at 203.
+We will test two additional models, one that cuts off at 73 and one that
+cuts off at 203.
+
+## First Quantile: Day 73
+
+Create the new dataframe:
+
+```{r}
+
+split.heart.first_quantile <- survSplit(Surv(time2, DEATH_EVENT) ~ age + ejection_fraction 
+  + serum_creatinine + strata(high_blood_pressure) + strata(anaemia) + 
+  creatinine_phosphokinase + serum_sodium, data = heart.new, cut = 73, 
+  start = "start", episode = "Epi", end = "stop", id = "subject")
+```
+
+Create the new model:
+
+```{r}
+cox.split.first_quantile <- coxph(Surv(start, stop, DEATH_EVENT) ~
+                      serum_creatinine:strata(Epi) + 
+                      creatinine_phosphokinase:strata(Epi) + 
+                      serum_sodium:strata(Epi), data = split.heart.first_quantile)
+summary(cox.split.first_quantile)
+
+```
+
+Considering only the data before Day 73, the significant variables are:
+serum_creatinine and serum_sodium. These were also the same variables
+that were significant in the model when we cut at the 115th day. If we
+only considered data after the 73rd day, the significant variables is:
+serum_creatinine. This is also the same variable that is significant
+from the model cut at 115. Thus, we can tell that conclude that cutting
+at the first quantile and second quantile yield the same results.
+
+## Third Quantile: Day 203
+
+Create the new dataframe:
+
+```{r, warning=FALSE}
+split.heart.third_quantile <- survSplit(Surv(time2, DEATH_EVENT) ~ age + ejection_fraction 
+  + serum_creatinine + strata(high_blood_pressure) + strata(anaemia) + 
+  creatinine_phosphokinase + serum_sodium, data = heart.new, cut = 203, 
+  start = "start", episode = "Epi", end = "stop", id = "subject")
+
+```
+
+Create the new model:
+
+```{r}
+cox.split.third_quantile <- coxph(Surv(start, stop, DEATH_EVENT) ~
+                      serum_creatinine:strata(Epi) + 
+                      creatinine_phosphokinase:strata(Epi) + 
+                      serum_sodium:strata(Epi), data = split.heart.third_quantile)
+summary(cox.split.third_quantile)
+```
+
+Using only data before the 203rd day, the significant variables are:
+serum_creatinine and serum_sodium. These variables are the same from the
+previous models. Using only data after the 203rd day, the only
+significant variable is serum_sodium. Unlike the other previous models,
+serum_sodium is now significant after the intended splitting time. The
+previous models showed serum_creatinine to be significant after the
+intended splitting time.
+
+## Summary of Advanced Methods
+
+We first decided to split the data at time 115 because that was the
+median time for the data set. Through these splits, we determined that
+serum creatinine and serum_sodium were statistically significant before
+the 115 day cut off. After the 115th day, only serum_creatinine was
+statistically significant. We can conclude that serum_creatinine was the
+only significant variable before and after splitting at Day 115.
+
+After we decided to split at the median, we also wanted to perform two
+other splits: one at the first quantile at Day 73 and another at the
+third quantile at Day 203. In splitting at Day 73, we found the same
+results as when we split at the median. Serum creatinine and
+serum_sodium were statistically significant before the cut off, while
+only serum_creatinine was statistically significant after the cut off.
+Therefore, we can conclude that cutting at the first quantile and second
+quantile produced the same results.
+
+When we split at the third quantile, we saw serum_creatinine and
+serum_sodium to be significant before the cut off. This was something
+familiar because at all three splits before the intended time,
+serum_creatinine and serum_sodium were significant. However, when
+splitting at the third quantile, the only significant variable after the
+split was serum_sodium. This differed from the two previous models.
+
+We can conclude that for all splits, the significant variables before
+each intended time split were serum creatinine and serum_sodium. The
+significant variable after the split in the first and second quantile
+was serum creatinine, and in the third quantile, serum_sodium. Depending
+on when the data is split, some variables will become insignificant and
+others will become significant.
+
+# [**References**]{.ul}
+
+Larxel. "Heart Failure Prediction." *Kaggle*, 20 June 2020,
+<https://www.kaggle.com/datasets/andrewmvd/heart-failure-clinical-data.>
+
+*UCI Machine Learning Repository: Heart Failure Clinical Records Data
+Set*,
+<https://archive.ics.uci.edu/ml/datasets/Heart+failure+clinical+records.>
+
+```{r all-code, ref.labels=labs, eval=FALSE, echo = TRUE}
+```
